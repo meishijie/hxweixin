@@ -111,17 +111,17 @@ class Msg{
 	
 	static function _fromXml(mf:Array<MField>, pos:Position):Void{
 		var buff = new StringBuf();
-		buff.add("{var f = new haxe.xml.Fast( Xml.parse(xml).firstElement() );");
+		buff.add("{var x = Xml.parse(xml).firstElement();");
 		for (m in mf){
 			var tag = m.field.name;
 			switch(m.ct){
 				case TPath(p):
 					var type = p.sub == null ? p.name : p.sub;
 					switch (type) {
-						case "Bool":	buff.add('$tag = f.node.resolve("$tag").innerData == "true";');
-						case "Int":		buff.add('$tag = Std.parseInt(f.node.resolve("$tag").innerData);');
-						case "Float":	buff.add('$tag = Std.parseFloat(f.node.resolve("$tag").innerData);');
-						case "String":	buff.add('$tag = f.node.resolve("$tag").innerData;');
+						case "Bool":	buff.add('$tag = utils.Tools.firstInerData(x, "$tag") == "true";');
+						case "Int":		buff.add('$tag = Std.parseInt(utils.Tools.firstInerData(x, "$tag"));');
+						case "Float":	buff.add('$tag = Std.parseFloat(utils.Tools.firstInerData(x, "$tag"));');
+						case "String":	buff.add('$tag = utils.Tools.firstInerData(x, "$tag");');
 						default:
 					}
 				default:
