@@ -13,14 +13,17 @@ hxweixin
 
  * [微信开发如何做本地调试](http://www.zhihu.com/question/25456655) 关于如何映射内网到外部
 
- * [微信web开发者工具](http://mp.weixin.qq.com/wiki/10/e5f772f4521da17fa0d7304f68b97d7e.html) 更方便的调试 **基于微信的网页**
+ * [微信web开发者工具](http://mp.weixin.qq.com/wiki/10/e5f772f4521da17fa0d7304f68b97d7e.html) 更方便的调试基于微信的网页
+
+ * [微信html5 CSS UI框架](http://weui.github.io/weui/)
+	 
 
 	 
 ### 进度
 
- - [ ] extern JSAPI
+ - [x] extern JSAPI
  
- - [ ] 缓存 access_token 和 
+ - [x] 缓存 access_token 和 api_ticket
 
 
 

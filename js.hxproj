@@ -25,7 +25,7 @@
     <option noInlineOnDebug="False" />
     <option mainClass="Test" />
     <option enabledebug="False" />
-    <option additional="-dce full&#xA;-D analyzer&#xA;#-D dump=pretty&#xA;-D js-es5" />
+    <option additional="-dce std&#xA;-D analyzer&#xA;-D dump=pretty&#xA;-D js-es5" />
   </build>
   <!-- haxelib libraries -->
   <haxelib>
