@@ -1,5 +1,6 @@
 package utils;
 
+
 class Tools{
 	/**
 	得到 XML 的第一个指定名称的子元素的 innerData
@@ -29,5 +30,13 @@ class Tools{
 		if ( v.nodeType != Xml.PCData && v.nodeType != Xml.CData )
 			return null;
 		return v.nodeValue;
+	}
+	
+	static public inline function i64(s:String):haxe.Int64{
+		return try{
+			haxe.Int64Helper.parseString(s);
+		}catch(err:Dynamic){
+			haxe.Int64.make(0,0);
+		}
 	}
 }

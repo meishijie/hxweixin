@@ -23,8 +23,7 @@ typedef MField = {
 
  - 不处理 _ 打头的字段和静态字段
 
- - 不支持 Int64, 考虑用 @:nocdata 的 String 代替, 如果不需要计算数值的话
-
+ - 尝试添加 Int64 类型用于检测微信MsgId的重排问题.
 */
 #if !macro
 @:autoBuild(utils.Msg.build())
@@ -45,7 +44,7 @@ class Msg{
 				case TPath(p):
 					var type = p.sub == null ? p.name : p.sub;
 					switch(type){	// toXmlString
-						case "Bool" | "Int" | "Float":
+						case "Bool" | "Int" | "Float" | "Int64":
 							buff.add('$lt + $tag + $rt + ');
 						case "String":
 							if(m.cdata){
@@ -86,7 +85,7 @@ class Msg{
 					switch(type){
 						case "Bool" | "Int" | "Float":
 							buff.push('\'"$tag":\' + $tag');	// '"a":' + $a
-						case "String":
+						case "String" | "Int64":				// 暂时将 Int64 转换成字符串形式
 							buff.push('\'"$tag":"\' + $tag + \'"\'');
 						default:
 					}
@@ -111,17 +110,18 @@ class Msg{
 	
 	static function _fromXml(mf:Array<MField>, pos:Position):Void{
 		var buff = new StringBuf();
-		buff.add("{var x = Xml.parse(xml).firstElement();");
+		buff.add("{var _x = Xml.parse(xml).firstElement();");
 		for (m in mf){
 			var tag = m.field.name;
 			switch(m.ct){
 				case TPath(p):
 					var type = p.sub == null ? p.name : p.sub;
 					switch (type) {
-						case "Bool":	buff.add('$tag = utils.Tools.firstInerData(x, "$tag") == "true";');
-						case "Int":		buff.add('$tag = Std.parseInt(utils.Tools.firstInerData(x, "$tag"));');
-						case "Float":	buff.add('$tag = Std.parseFloat(utils.Tools.firstInerData(x, "$tag"));');
-						case "String":	buff.add('$tag = utils.Tools.firstInerData(x, "$tag");');
+						case "Bool":	buff.add('$tag = utils.Tools.firstInerData(_x, "$tag") == "true";');
+						case "Int":		buff.add('$tag = Std.parseInt(utils.Tools.firstInerData(_x, "$tag"));');
+						case "Float":	buff.add('$tag = Std.parseFloat(utils.Tools.firstInerData(_x, "$tag"));');
+						case "String":	buff.add('$tag = utils.Tools.firstInerData(_x, "$tag");');
+						case "Int64":	buff.add('$tag = utils.Tools.i64( utils.Tools.firstInerData(_x, "$tag") );');
 						default:
 					}
 				default:
@@ -147,7 +147,7 @@ class Msg{
 
 	static function _fromJson(mf:Array<MField>, pos:Position):Void{
 		var buff = new StringBuf();
-		buff.add("{ var o = haxe.Json.parse(json);");
+		buff.add("{ var _o = haxe.Json.parse(json);");
 		for(m in mf){
 			var tag = m.field.name;
 						switch(m.ct){
@@ -155,7 +155,9 @@ class Msg{
 					var type = p.sub == null ? p.name : p.sub;
 					switch (type) {
 						case "Bool", "Int", "Float", "String":
-							buff.add('$tag = o.$tag;');
+							buff.add('$tag = _o.$tag;');
+						case "Int64":
+							buff.add('$tag = utils.Tools.i64(_o.$tag);');
 						default:
 					}
 				default:
@@ -193,7 +195,7 @@ class Msg{
 				case TPath(p):
 					var type = p.sub == null ? p.name : p.sub;
 					switch (type) {
-						case "Bool" | "Int" | "Float" | "String":
+						case "Bool" | "Int" | "Float" | "String" | "Int64":
 							a.push('"$tag=" + $tag');	// '"a=" + a'   '+"&"+'  '"b=" + b'
 						default:
 					}
