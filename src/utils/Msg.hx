@@ -24,6 +24,11 @@ typedef MField = {
  - 不处理 _ 打头的字段和静态字段
 
  - 尝试添加 Int64 类型用于检测微信MsgId的重排问题.
+
+ - 如果在类添上 `@:skip`将不再构建这个类, 这个可用于多继承中间的类
+
+ - 允许多重继承
+
 */
 #if !macro
 @:autoBuild(utils.MsgBuild.make())
@@ -34,6 +39,7 @@ class Msg{
 class MsgBuild {
 	#if macro
 	static var fields:Array<Field>;
+	static var supers:Array<String>;
 
 	static function _toXml(mf:Array<MField>, pos:Position, fname = "toXMLString"):Void{
 		var buff = new StringBuf();
@@ -67,7 +73,7 @@ class MsgBuild {
 		fields.push({
 			name: fname,
 			doc: "...",
-			access: [APublic],
+			access: supers.indexOf(fname) == -1 ? [APublic] : [APublic, AOverride],
 			pos: pos,
 			kind: FFun( {
 				ret: macro :String,
@@ -100,7 +106,7 @@ class MsgBuild {
 		fields.push({
 			name: fname,
 			doc: "toJson string",
-			access: [APublic],
+			access: supers.indexOf(fname) == -1 ? [APublic] : [APublic, AOverride],
 			pos: pos,
 			kind: FFun( {
 				ret: macro :String,
@@ -134,7 +140,7 @@ class MsgBuild {
 		fields.push({
 			name: fname,
 			doc:"",
-			access: [APublic],		// 由于 static 类型的需要获得构造方法的参数顺序因此复杂度太高
+			access: supers.indexOf(fname) == -1 ? [APublic] : [APublic, AOverride],		// 由于 static 类型的需要获得构造方法的参数顺序因此复杂度太高
 			pos: pos,
 			kind: FFun({
 				ret: macro :Void,
@@ -170,7 +176,7 @@ class MsgBuild {
 		fields.push({
 			name: fname,
 			doc:"from JSON String.",
-			access: [APublic],
+			access: supers.indexOf(fname) == -1 ? [APublic] : [APublic, AOverride],
 			pos: pos,
 			kind: FFun({
 				ret: macro :Void,
@@ -210,7 +216,7 @@ class MsgBuild {
 		fields.push({
 			name: fname,
 			doc: "e.g: a=1&b=2&c=3",
-			access: [APublic],
+			access: supers.indexOf(fname) == -1 ? [APublic] : [APublic, AOverride],
 			pos: pos,
 			kind: FFun({
 				ret: macro :String,
@@ -229,7 +235,7 @@ class MsgBuild {
 
 		fields.push({
 			name: fname,
-			access: [APublic],
+			access: supers.indexOf(fname) == -1 ? [APublic] : [APublic, AOverride],
 			pos: pos,
 			kind: FFun({
 				ret: macro :String,
@@ -257,7 +263,7 @@ class MsgBuild {
 		if(hasId){
 			fields.push({
 				name: fname1,
-				access: [APublic],
+				access: supers.indexOf(fname1) == -1 ? [APublic] : [APublic, AOverride],
 				pos: pos,
 				kind: FFun({
 					ret: macro :Bool,
@@ -273,7 +279,7 @@ class MsgBuild {
 		}else if(hasName && hasStamp){
 			fields.push({
 				name: fname2,
-				access: [APublic],
+				access: supers.indexOf(fname2) == -1 ? [APublic] : [APublic, AOverride],
 				pos: pos,
 				kind: FFun({
 					ret: macro :Bool,
@@ -334,6 +340,7 @@ class MsgBuild {
 				case FVar(_,_):
 					return true;
 				default:
+					supers.push(f.name);
 					return false;
 			}
 		});
@@ -343,9 +350,13 @@ class MsgBuild {
 
 	public static function make(){
 
+		var cls:ClassType = Context.getLocalClass().get();
+
+		if (cls.meta.has(":skip")) return null;		// 跳过
+
 		fields = Context.getBuildFields();
 
-		var cls:ClassType = Context.getLocalClass().get();
+		supers = [];
 
 		var mf:Array<MField> = [];
 
