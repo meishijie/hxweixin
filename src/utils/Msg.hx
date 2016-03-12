@@ -116,9 +116,9 @@ class MsgBuild {
 		});
 	}
 	
-	static function _fromXml(mf:Array<MField>, pos:Position, fname = "fromXMLString"):Void{
+	static function _fromXml(mf:Array<MField>, pos:Position, fname = "fromXML"):Void{
 		var buff = new StringBuf();
-		buff.add("{var _x = Xml.parse(xml).firstElement();");
+		buff.add("{");
 		for (m in mf){
 			var tag = m.field.name;
 			switch(m.ct){
@@ -145,8 +145,8 @@ class MsgBuild {
 			kind: FFun({
 				ret: macro :Void,
 				args: [{
-					name: "xml",
-					type: macro :String
+					name: "_x",
+					type: macro :Xml
 				}],
 				expr: Context.parseInlineString(buff.toString(), pos)
 			})
