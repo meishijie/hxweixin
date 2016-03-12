@@ -26,14 +26,16 @@ typedef MField = {
  - 尝试添加 Int64 类型用于检测微信MsgId的重排问题.
 */
 #if !macro
-@:autoBuild(utils.Msg.build())
+@:autoBuild(utils.MsgBuild.make())
 #end
 class Msg{
+}
 
+class MsgBuild {
 	#if macro
 	static var fields:Array<Field>;
 
-	static function _toXml(mf:Array<MField>, pos:Position):Void{
+	static function _toXml(mf:Array<MField>, pos:Position, fname = "toXMLString"):Void{
 		var buff = new StringBuf();
 		buff.add('{ return "<xml>\n" +');
 		for(m in mf){
@@ -63,7 +65,7 @@ class Msg{
 		buff.add('"</xml>"; }');
 
 		fields.push({
-			name: "toXMLString",
+			name: fname,
 			doc: "...",
 			access: [APublic],
 			pos: pos,
@@ -75,7 +77,7 @@ class Msg{
 		});
 	}
 
-	static function _toJson(mf:Array<MField>,pos:Position):Void{
+	static function _toJson(mf:Array<MField>,pos:Position, fname = "toJson"):Void{
 		var buff = new Array<String>();
 		for(m in mf){
 			var tag = m.field.name;
@@ -96,7 +98,7 @@ class Msg{
 		var code = '{return "{" + ' + buff.join('+","+') +  ' + "}";}';
 
 		fields.push({
-			name: "toJson",
+			name: fname,
 			doc: "toJson string",
 			access: [APublic],
 			pos: pos,
@@ -108,7 +110,7 @@ class Msg{
 		});
 	}
 	
-	static function _fromXml(mf:Array<MField>, pos:Position):Void{
+	static function _fromXml(mf:Array<MField>, pos:Position, fname = "fromXMLString"):Void{
 		var buff = new StringBuf();
 		buff.add("{var _x = Xml.parse(xml).firstElement();");
 		for (m in mf){
@@ -130,7 +132,7 @@ class Msg{
 		buff.add("}");
 
 		fields.push({
-			name: "fromXMLString",
+			name: fname,
 			doc:"",
 			access: [APublic],		// 由于 static 类型的需要获得构造方法的参数顺序因此复杂度太高
 			pos: pos,
@@ -145,7 +147,7 @@ class Msg{
 		});
 	}
 
-	static function _fromJson(mf:Array<MField>, pos:Position):Void{
+	static function _fromJson(mf:Array<MField>, pos:Position, fname = "fromJson"):Void{
 		var buff = new StringBuf();
 		buff.add("{ var _o = haxe.Json.parse(json);");
 		for(m in mf){
@@ -166,7 +168,7 @@ class Msg{
 		buff.add("}");
 
 		fields.push({
-			name: "fromJson",
+			name: fname,
 			doc:"from JSON String.",
 			access: [APublic],
 			pos: pos,
@@ -183,7 +185,7 @@ class Msg{
 
 	static inline var SIGN = "sign";
 	static inline var KEY = "key";
-	static function _toUrl(mf:Array<MField>, pos:Position):Void{
+	static function _toUrl(mf:Array<MField>, pos:Position, fname = "toUrlParams"):Void{
 		var buff = new StringBuf();
 		var a = [];
 		for (m in mf) {
@@ -206,7 +208,7 @@ class Msg{
 		buff.add("return " + a.join('+"&"+'));
 
 		fields.push({
-			name: "toUrlParams",
+			name: fname,
 			doc: "e.g: a=1&b=2&c=3",
 			access: [APublic],
 			pos: pos,
@@ -218,7 +220,7 @@ class Msg{
 		});
 	}
 
-	static function _makeSign(pos:Position):Void{
+	static function _makeSign(pos:Position, fname = "makeSign"):Void{
 		var buff = new StringBuf();
 		buff.add('{
 			var url = toUrlParams() + "&key=" + srv.Config.WX_KEY;
@@ -226,7 +228,7 @@ class Msg{
 		}');
 
 		fields.push({
-			name: "makeSign",
+			name: fname,
 			access: [APublic],
 			pos: pos,
 			kind: FFun({
@@ -235,6 +237,59 @@ class Msg{
 				expr: Context.parseInlineString(buff.toString(), pos)
 			})
 		});
+	}
+
+	static function _makeEq(mf:Array<MField>, pos:Position, fname1 = "eqById", fname2 = "eqByNameNTime"):Void{
+		var hasId = false;
+		var hasName = false;
+		var hasStamp = false;
+		for (m in mf){
+			var name = m.field.name;
+			if(name == "MsgId"){
+				hasId = true;
+				break;
+			}else if(name == "FromUserName"){
+				hasName = true;
+			}else if(name == "CreateTime"){
+				hasStamp = true;
+			}
+		}
+		if(hasId){
+			fields.push({
+				name: fname1,
+				access: [APublic],
+				pos: pos,
+				kind: FFun({
+					ret: macro :Bool,
+					args:[{
+						name: "i64",
+						type: macro :haxe.Int64
+					}],
+					expr: macro {
+						return $i{"MsgId"} == $i{"i64"};
+					}
+				})
+			});
+		}else if(hasName && hasStamp){
+			fields.push({
+				name: fname2,
+				access: [APublic],
+				pos: pos,
+				kind: FFun({
+					ret: macro :Bool,
+					args:[{
+						name: "name",
+						type: macro :String
+					},{
+						name: "stamp",
+						type: macro :Float
+					}],
+					expr: macro {
+						return $i{"FromUserName"} == $i{"name"} && $i{"CreateTime"} == $i{"stamp"};
+					}
+				})
+			});
+		}
 	}
 
 	static function fullType(t:BaseType):String{
@@ -270,26 +325,39 @@ class Msg{
 		}
 	}
 
-	public static function build(){
+	static function recAllFields(cls:ClassType, out:Array<MField>):Void{
+		if(cls.superClass != null){
+			recAllFields(cls.superClass.t.get(), out);
+		}
+		var cfs = cls.fields.get().filter(function(f):Bool{
+			switch(f.kind){
+				case FVar(_,_):
+					return true;
+				default:
+					return false;
+			}
+		});
+
+		filter([for (cf in cfs) @:privateAccess TypeTools.toField(cf)], out);
+	}
+
+	public static function make(){
 
 		fields = Context.getBuildFields();
 
 		var cls:ClassType = Context.getLocalClass().get();
-		cls.meta.add(":final", [], Context.currentPos());
 
 		var mf:Array<MField> = [];
 
-		if(cls.superClass != null){
-			var sup:ClassType = cls.superClass.t.get();
-			var cfs = sup.fields.get();
-			filter([for (cf in cfs) @:privateAccess TypeTools.toField(cf)], mf);
-		}
+		if (cls.superClass != null) recAllFields(cls.superClass.t.get(), mf);
 
 		filter(fields, mf);
 
 		_toXml(mf, PositionTools.here());			// toXmlString, 需要保持原有的字段排序.
 
 		_fromXml(mf, PositionTools.here()); 		// fromXmlString
+
+		_makeEq(mf, PositionTools.here());
 
 		if (cls.meta.has(":needjson")){				// 如果 -dce full 服务器能正常, 可以注释掉这条件
 			_toJson(mf, PositionTools.here());		// toJson
