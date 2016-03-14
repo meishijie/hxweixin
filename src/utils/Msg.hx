@@ -23,12 +23,11 @@ typedef MField = {
 
  - 不处理 _ 打头的字段和静态字段
 
- - 尝试添加 Int64 类型用于检测微信MsgId的重排问题.
+ - 尝试添加 Int64 类型用于检测微信MsgId的重排问题. 当 Int64 为空时, 如果没有指定 `Null<Int64>` 则在 toXMLString, toJSON, toURLParams 时将出错
 
  - 如果在类添上 `@:skip`将不再构建这个类, 这个可用于多继承中间的类
 
  - 允许多重继承
-
 */
 #if !macro
 @:autoBuild(utils.MsgBuild.make())
@@ -41,33 +40,57 @@ class MsgBuild {
 	static var fields:Array<Field>;
 	static var supers:Array<String>;
 
+	/**
+	*
+	* @param ct
+	* @param buff
+	* @param tag
+	* @param cdata = true	针对 String 类型,是否添加 `<![CDATA[ ]]>`
+	* @param space = "  "	美化输出字符打印
+	* @param opt = false	如果为 true, 则当值为 null 时将不会输出到 XML 中去
+	* @param context = ""
+	*/
+	static function _toXmlRec(ct:ComplexType, buff:StringBuf, tag:String, cdata = true, opt = false, context = "", space = "  "):Void{
+		var lt = '"$space<$tag>"';
+		var rt = '"</$tag>\n"';
+		var value = context + tag;
+		switch (ct) {
+			case TPath({name: "Null", params:[TPType(t)]}):
+				_toXmlRec(t, buff, tag, cdata, true, context, space);
+			case TPath(p):
+				var ts = p.sub == null ? p.name : p.sub;
+				switch(ts){
+					case "Bool" | "Int" | "Float" | "Int64":
+						buff.add(opt ? '(${value} != null ? ($lt + ${value} + $rt) : "" ) + ' : '$lt + ${value} + $rt + ');		
+					case "String":
+						if(cdata){
+							lt = '"  <$tag><![CDATA["';
+							rt = '"]]></$tag>\n"';
+						}
+						buff.add(opt ? '(${value} != null ? ($lt + ${value} + $rt) : "" ) + ' : '$lt + ${value} + $rt + ');
+					default:
+				}
+			case TAnonymous(a):
+				buff.add('$space ( $value != null ? ');
+				buff.add('"$space<$tag>\n" + ');
+				for(f in a){
+					switch(f.kind){
+						case FVar(t, _):
+							_toXmlRec(t, buff, f.name, true, hasMeta(f.meta, ":optional"), value + ".", space + "  ");
+						default:
+					}
+				}
+				buff.add('"$space</$tag>\n"');
+				buff.add('$space : "") + ');
+			default:
+		}
+	}
 	static function _toXml(mf:Array<MField>, pos:Position, fname = "toXMLString"):Void{
 		var buff = new StringBuf();
 		buff.add('{ return "<xml>\n" +');
 		for(m in mf){
-			var tag = m.field.name;
-			var lt = '"  <$tag>"';
-			var rt = '"</$tag>\n"';
-			switch(m.ct){
-				case TPath(p):
-					var type = p.sub == null ? p.name : p.sub;
-					switch(type){	// toXmlString
-						case "Bool" | "Int" | "Float" | "Int64":
-							buff.add('$lt + $tag + $rt + ');
-						case "String":
-							if(m.cdata){
-								lt = '"  <$tag><![CDATA["';
-								rt = '"]]></$tag>\n"';
-							}
-							buff.add('$lt + $tag + $rt + ');
-						//case "Array":
-						//	buff.add('($tag != null ? [ for(v in $tag) $lt + v +$rt].join("") + "\n" : "" ) +');
-						default:
-					}
-				default:
-			}
+			_toXmlRec(m.ct, buff, m.field.name, m.cdata );
 		}
-
 		buff.add('"</xml>"; }');
 
 		fields.push({
@@ -83,25 +106,55 @@ class MsgBuild {
 		});
 	}
 
-	static function _toJson(mf:Array<MField>,pos:Position, fname = "toJson"):Void{
-		var buff = new Array<String>();
-		for(m in mf){
-			var tag = m.field.name;
-			switch(m.ct){
-				case TPath(p):
-					var type = p.sub == null ? p.name : p.sub;
-					switch(type){
-						case "Bool" | "Int" | "Float":
-							buff.push('\'"$tag":\' + $tag');	// '"a":' + $a
-						case "String" | "Int64":				// 暂时将 Int64 转换成字符串形式
-							buff.push('\'"$tag":"\' + $tag + \'"\'');
+	/**
+	buff 由于移除最后一个 , 号有些麻烦, 因此改用 Array<String> 来拼接字符串
+	*/
+	static function _toJsonRec(ct:ComplexType, buff:StringBuf, tag:String, opt = false, context = "", space = "  "):Void{
+		var value = context + tag;
+		switch (ct) {
+			case TPath({name: "Null", params:[TPType(t)]}):
+				_toJsonRec(t, buff, tag, true, context, space);
+			case TPath(p):
+				var ts = p.sub == null ? p.name : p.sub;
+				switch(ts){
+					case "Bool" | "Int" | "Float":
+						buff.add(opt ? '\n+$space(${value} != null ? \',"$tag":\' + ${value} : "")' : '\n+$space\',"$tag":\' + ${value}');
+					case "String" | "Int64":
+						buff.add(opt ? '\n+$space(${value} != null ? \',"$tag":\' + \'"\' + ${value} + \'"\': "")' : '\n+$space\',"$tag":\' + \'"\' + ${value} + \'"\'');
+					default:
+				}
+			case TAnonymous(a):
+				var sub = new StringBuf();
+				buff.add('\n+$space ($value != null ? ');
+				for(f in a){
+					switch(f.kind){
+						case FVar(t, _):
+							_toJsonRec(t, sub, f.name,hasMeta(f.meta, ":optional"), value + ".", space + "  ");
 						default:
 					}
-				default:
-			}
+				}
+				if (sub.length > 0 ){
+					var ss = sub.toString();
+					var pi = ss.indexOf(",");
+					if (pi > -1) ss = ss.substr(0, pi) + ss.substr(pi + 1);
+					buff.add('\n$space\',"$tag":{\'' + ss  +'\n+ $space"}"');
+				}else{
+					buff.add('\n$space\',"$tag":{}\'');
+				}
+				buff.add(' : "")');
+			default:
 		}
-		//trace(buff.join('+","+'));
-		var code = '{return "{" + ' + buff.join('+","+') +  ' + "}";}';
+	}
+	static function _toJson(mf:Array<MField>,pos:Position, fname = "toJson"):Void{
+		var buff = new StringBuf();
+		for (m in mf){
+			_toJsonRec(m.ct, buff, m.field.name, hasMeta(m.field.meta, ":optional"));
+		}
+		var code = buff.toString();
+		var pi = code.indexOf(",");
+		if (pi > -1) code = code.substr(0, pi) + code.substr(pi + 1);
+
+		code = '{return "{"' +  code   + '\n+"}";\n}';
 
 		fields.push({
 			name: fname,
@@ -115,25 +168,47 @@ class MsgBuild {
 			})
 		});
 	}
-	
-	static function _fromXml(mf:Array<MField>, pos:Position, fname = "fromXML"):Void{
-		var buff = new StringBuf();
-		buff.add("{");
-		for (m in mf){
-			var tag = m.field.name;
-			switch(m.ct){
-				case TPath(p):
-					var type = p.sub == null ? p.name : p.sub;
-					switch (type) {
-						case "Bool":	buff.add('$tag = utils.Tools.firstInerData(_x, "$tag") == "true";');
-						case "Int":		buff.add('$tag = Std.parseInt(utils.Tools.firstInerData(_x, "$tag"));');
-						case "Float":	buff.add('$tag = Std.parseFloat(utils.Tools.firstInerData(_x, "$tag"));');
-						case "String":	buff.add('$tag = utils.Tools.firstInerData(_x, "$tag");');
-						case "Int64":	buff.add('$tag = utils.Tools.i64( utils.Tools.firstInerData(_x, "$tag") );');
+
+	static function _fromXmlRec(ct:ComplexType, buff:StringBuf, tag:String, context = "", root = "_x", space = "  "):Void{
+		var value = context + tag;
+		switch (ct) {
+			case TPath({name: "Null", params:[TPType(t)]}):
+				_fromXmlRec(t, buff, tag, context);
+
+			case TPath(p):
+				var ts = p.sub == null ? p.name : p.sub;
+				switch(ts){
+					case "Bool": 	buff.add('$space${value} = utils.Tools.firstInerData($root, "$tag") == "true";\n');
+					case "Int":		buff.add('$space${value} = cast utils.Tools.firstInerData($root, "$tag");\n');
+					case "Float":	buff.add('$space${value} = cast utils.Tools.firstInerData($root, "$tag");\n');
+					case "String":	buff.add('$space${value} = utils.Tools.firstInerData($root, "$tag");\n');
+					case "Int64":	buff.add('$space${value} = utils.Tools.i64(utils.Tools.firstInerData($root, "$tag"));\n');
+					default:
+				}
+
+			case TAnonymous(a):
+				var subroot =  tag + root;
+				buff.add('${space}if(${value} == null) ${value} = cast {};\n');
+				buff.add('${space}{\n ${space}  var ${subroot} = ${root}.elementsNamed("$tag").next();\n');
+				buff.add('${space}  if(${subroot} != null){\n');
+				for(f in a){
+					switch(f.kind){
+						case FVar(t, _):
+							_fromXmlRec(t, buff, f.name, value + ".", subroot, "   " + space);
 						default:
 					}
-				default:
-			}
+				}
+
+				buff.add('${space}  }\n${space}}\n');
+			default:
+		}
+	}
+
+	static function _fromXml(mf:Array<MField>, pos:Position, fname = "fromXML"):Void{
+		var buff = new StringBuf();
+		buff.add("{\n");
+		for (m in mf){
+			_fromXmlRec(m.ct, buff, m.field.name);
 		}
 		buff.add("}");
 
@@ -153,24 +228,42 @@ class MsgBuild {
 		});
 	}
 
-	static function _fromJson(mf:Array<MField>, pos:Position, fname = "fromJson"):Void{
-		var buff = new StringBuf();
-		buff.add("{ var _o = haxe.Json.parse(json);");
-		for(m in mf){
-			var tag = m.field.name;
-						switch(m.ct){
-				case TPath(p):
-					var type = p.sub == null ? p.name : p.sub;
-					switch (type) {
-						case "Bool", "Int", "Float", "String":
-							buff.add('$tag = _o.$tag;');
-						case "Int64":
-							buff.add('$tag = utils.Tools.i64(_o.$tag);');
+	static function _fromJsonRec(ct:ComplexType, buff:StringBuf, tag:String, context = "", root = "_o.", space = "  "):Void{
+		var value = context + tag;
+		var tar = root + tag;
+		switch (ct) {
+			case TPath({name: "Null", params:[TPType(t)]}):
+				_fromJsonRec(t, buff, tag, context, root, space);
+			case TPath(p):
+				var ts = p.sub == null ? p.name : p.sub;
+				switch (ts) {
+					case "Bool", "Int", "Float", "String":
+						buff.add('$space$value = $tar;\n');
+					case "Int64":
+						buff.add('$space$value = utils.Tools.i64($tar);\n');
+					default:
+				}
+			case TAnonymous(a):
+				buff.add('$space if($tar != null){\n');
+				buff.add('$space$space if($value == null) $value = cast {};\n');
+				for(f in a){
+					switch(f.kind){
+						case FVar(t, _):
+							_fromJsonRec(t, buff, f.name, value + ".", tar + ".", space + space + "  ");
 						default:
 					}
-				default:
-			}
+				}
+				buff.add('$space}\n');
+			default:
 		}
+	}
+	static function _fromJson(mf:Array<MField>, pos:Position, fname = "fromObj"):Void{
+		var buff = new StringBuf();
+		buff.add("{\n");
+		for(m in mf){
+			_fromJsonRec(m.ct, buff, m.field.name);
+		}
+
 		buff.add("}");
 
 		fields.push({
@@ -181,8 +274,8 @@ class MsgBuild {
 			kind: FFun({
 				ret: macro :Void,
 				args: [{
-					name: "json",
-					type: macro :String
+					name: "_o",
+					type: macro :Dynamic
 				}],
 				expr: Context.parseInlineString(buff.toString(), pos)
 			})
@@ -191,28 +284,36 @@ class MsgBuild {
 
 	static inline var SIGN = "sign";
 	static inline var KEY = "key";
+	static function _toUrlRec(ct:ComplexType, buff:StringBuf, tag:String, opt = false, context = ""):Void{
+		var value = context + tag;
+		switch (ct) {
+			case TPath({name: "Null", params:[TPType(t)]}):
+				_toUrlRec(t, buff, tag, true, context);
+			case TPath(p):
+				var ts = p.sub == null ? p.name : p.sub;
+				switch (ts) {
+					case "Bool" | "Int" | "Float" | "String" | "Int64":
+						buff.add(opt ? '($value == null ? "" : "&$tag=" + $value) + ' : '"&$tag=" + $value + ');
+					default:
+				}
+			case TAnonymous(a):
+//				trace("toUrlParams: (TAnonymous) does not implement yet");
+				// TODOS: 未来如果微信会把多层 XML 转换成 search 时再改这里
+			default:
+		}
+	}
 	static function _toUrl(mf:Array<MField>, pos:Position, fname = "toUrlParams"):Void{
 		var buff = new StringBuf();
-		var a = [];
 		for (m in mf) {
 			var tag = m.field.name;
 			if (tag == SIGN) continue;
-			if (tag == KEY) Context.warning("see \"_makeSign()\"...",pos);
-
-			switch (m.ct) {
-				case TPath(p):
-					var type = p.sub == null ? p.name : p.sub;
-					switch (type) {
-						case "Bool" | "Int" | "Float" | "String" | "Int64":
-							a.push('"$tag=" + $tag');	// '"a=" + a'   '+"&"+'  '"b=" + b'
-						default:
-					}
-				default:
-			}
+			if (tag == KEY) Context.warning("see \"_makeSign()\"...", pos);
+			_toUrlRec(m.ct, buff, tag);
 		}
 
-		buff.add("return " + a.join('+"&"+'));
-
+		var code = buff.toString();
+		if (code.length >= 3) code = code.substr(0, code.length -3);	// remove ' + '
+		code = '{return ($code).substr(1);}';
 		fields.push({
 			name: fname,
 			doc: "e.g: a=1&b=2&c=3",
@@ -221,7 +322,7 @@ class MsgBuild {
 			kind: FFun({
 				ret: macro :String,
 				args: [],
-				expr: Context.parseInlineString(buff.toString(), pos)
+				expr: Context.parseInlineString(code, pos)
 			})
 		});
 	}
@@ -298,6 +399,13 @@ class MsgBuild {
 		}
 	}
 
+	static function hasMeta(meta:Metadata, name:String):Bool{
+		for (m in meta)
+			if (m.name == name)
+				return true;
+		return false;
+	}
+
 	static function fullType(t:BaseType):String{
 		var name = t.module == t.name ? t.name : t.module + "." + t.name;
 		if (t.pack != null && t.pack.length > 0) {
@@ -351,7 +459,6 @@ class MsgBuild {
 	public static function make(){
 
 		var cls:ClassType = Context.getLocalClass().get();
-
 		if (cls.meta.has(":skip")) return null;		// 跳过
 
 		fields = Context.getBuildFields();
@@ -383,6 +490,7 @@ class MsgBuild {
 			_toUrl(mf, PositionTools.here());		// toUrlParams
 			_makeSign(PositionTools.here());		// makeSign
 		}
+		//trace([for(f in fields) f.name]);
 		return fields;
 	}
 	#end
